@@ -208,9 +208,13 @@ def get_session_stats(session_path):
     elif tokens_per_minute > 10000:
         rate_level = "MEDIUM"
 
-    # Context window logic - use total accumulated tokens as approximation
-    # The real context is the cumulative input + cache read from all messages
-    current_context_size = input_tokens + cache_read_tokens
+    # Context window logic
+    # 1. Current Turn Context (What actually hits the window limit)
+    # The context sent to model in the latest interaction
+    current_turn_context = recent_tokens['input'] + recent_tokens['cache_read']
+    
+    # 2. Total Accumulated Context (Historical usage sum)
+    total_accumulated_context = input_tokens + cache_read_tokens
     
     context_window = 200000 # Default
     if 'gemini' in model.lower() and 'pro' in model.lower():
@@ -220,7 +224,8 @@ def get_session_stats(session_path):
     
     context_percentage = 0
     if context_window > 0:
-        context_percentage = min(100, int((current_context_size / context_window) * 100))
+        # Progress bar based on CURRENT turn usage vs Limit
+        context_percentage = min(100, int((current_turn_context / context_window) * 100))
 
     # Time percentage
     max_duration_seconds = 5 * 3600
@@ -311,7 +316,9 @@ def get_session_stats(session_path):
         "recent_tokens": recent_tokens,
         "tokens_per_minute": tokens_per_minute,
         "rate_level": rate_level,
-        "context_size": current_context_size,
+        "context_size": current_turn_context,  # Legacy support if needed, but updated to current turn
+        "current_turn_context": current_turn_context,
+        "total_accumulated_context": total_accumulated_context,
         "context_window": context_window,
         "context_percentage": context_percentage,
         "time_percentage": time_percentage,

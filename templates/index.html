@@ -461,11 +461,8 @@
                     <!-- Context Usage -->
                     <div class="stat-group">
                         <div class="stat-group-label">
-                            <span>总上下文: ${formatNumber(contextSize)}</span>
-                            <span class="metric-optional" title="模型窗口限制">窗口: ${formatNumber(contextLimit)}</span>
-                        </div>
-                        <div class="stat-group-label">
-                            <span class="metric-optional" title="上下文剩余/超出">${ctxSide}</span>
+                            <span>当前: ${formatNumber(session.current_turn_context)} / ${formatNumber(contextLimit)}</span>
+                            <span class="metric-optional" title="累计消耗">总计: ${formatNumber(session.total_accumulated_context)}</span>
                         </div>
                         <div class="progress">
                             <div class="progress-bar ${ctxColor}" style="width: ${ctxPercent}%"></div>
