@@ -380,10 +380,30 @@
 
         function createActiveCard(session) {
             // Null checks
-            const contextSize = session.context_size || 0;
+            const contextSize = (session.context_size === null || session.context_size === undefined) ? null : session.context_size;
             const contextLimit = session.context_window || 200000;
-            const ctxPercent = session.has_token_data ? Math.min(100, Math.round((contextSize / contextLimit) * 100)) : 0;
+            const contextSizeCapped = (session.context_size_capped === null || session.context_size_capped === undefined)
+                ? contextSize
+                : session.context_size_capped;
+
+            const ctxPercent = (session.has_token_data && contextSizeCapped !== null && contextLimit > 0)
+                ? Math.min(100, Math.round((contextSizeCapped / contextLimit) * 100))
+                : 0;
             const ctxColor = getContextColor(ctxPercent);
+
+            const ctxRemaining = session.context_remaining ?? null;
+            const ctxOverage = session.context_overage ?? null;
+            const ctxCompactNeeded = session.context_compact_needed ?? null;
+
+            let ctxSide = '';
+            if (session.has_token_data) {
+                if (ctxOverage !== null && ctxOverage > 0) {
+                    const need = (ctxCompactNeeded !== null) ? ctxCompactNeeded : ctxOverage;
+                    ctxSide = `超出 ${formatNumber(ctxOverage)} (需压缩 ${formatNumber(need)})`;
+                } else if (ctxRemaining !== null) {
+                    ctxSide = `剩余 ${formatNumber(ctxRemaining)}`;
+                }
+            }
             
             const rateVal = session.has_token_data ? `${formatNumber(session.tokens_per_minute)}/min` : '统计中...';
             
@@ -441,7 +461,11 @@
                     <!-- Context Usage -->
                     <div class="stat-group">
                         <div class="stat-group-label">
-                            <span>上下文: ${formatNumber(contextSize)}/${formatNumber(contextLimit)} [${ctxPercent}%]</span>
+                            <span>总上下文: ${formatNumber(contextSize)}</span>
+                            <span class="metric-optional" title="模型窗口限制">窗口: ${formatNumber(contextLimit)}</span>
+                        </div>
+                        <div class="stat-group-label">
+                            <span class="metric-optional" title="上下文剩余/超出">${ctxSide}</span>
                         </div>
                         <div class="progress">
                             <div class="progress-bar ${ctxColor}" style="width: ${ctxPercent}%"></div>
@@ -498,7 +522,18 @@
                 const sessions = data.sessions;
                 const metrics = data.metrics;
                 
-                const activeSessions = sessions.filter(s => s.status === 'Active');
+                // Filter active sessions:
+                // 1) status is Active
+                // 2) Exclude "stale no-data" cards (no tokens AND inactive >= 60s)
+                const STALE_NO_DATA_SECONDS = 60;
+                const activeSessions = sessions.filter(s => {
+                    if (s.status !== 'Active') return false;
+                    // If session has valid token data, always show it
+                    if (s.has_token_data) return true;
+                    // If no token data, only hide if stale (>= 60s no activity)
+                    const seconds = (s.seconds_since_activity ?? 0);
+                    return seconds < STALE_NO_DATA_SECONDS;
+                });
                 const completedSessions = sessions.filter(s => s.status !== 'Active');
 
                 // Update Summary Metrics
