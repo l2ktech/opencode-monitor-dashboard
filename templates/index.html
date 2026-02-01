@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OCMonitor 监控台</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f1115;
+            --card-bg: #1a1d23;
+            --text-primary: #e0e0e0;
+            --text-secondary: #9aa0a6;
+            --accent-active: #2ea043;
+            --accent-completed: #30363d;
+            --border-color: #30363d;
+            --progress-bg: #21262d;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .navbar {
+            background-color: rgba(26, 29, 35, 0.95) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.5rem 1.5rem;
+        }
+
+        .navbar-brand {
+            font-size: 1.2rem;
+            letter-spacing: -0.5px;
+        }
+
+        .container-fluid {
+            padding: 20px 25px;
+        }
+        
+        /* Section Headers */
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+        }
+        
+        .section-header h2 {
+            font-size: 1.2rem;
+            margin: 0;
+            font-weight: 600;
+        }
+        
+        .section-header .badge {
+            margin-left: 10px;
+            font-size: 0.8rem;
+            background: #238636;
+        }
+
+        /* Active Sessions Grid */
+        .active-sessions-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        .session-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            transition: transform 0.2s ease;
+            position: relative;
+            height: 235px; /* Increased height slightly for new metrics */
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .session-card.active {
+            border-left: 3px solid var(--accent-active);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .session-card.error {
+            border-left: 3px solid #da3633;
+        }
+
+        .session-header {
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 8px;
+        }
+
+        .session-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 4px;
+        }
+
+        .session-meta-line {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        /* Stats in card */
+        .card-body-stats {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stat-group {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        
+        .stat-group-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .progress {
+            height: 4px;
+            background-color: var(--progress-bg);
+            border-radius: 2px;
+        }
+        
+        .model-name {
+            font-size: 0.75rem;
+            color: #d0d7de;
+            word-break: break-all;
+            line-height: 1.2;
+            max-height: 2.4em;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .session-footer {
+            margin-top: auto;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding-top: 8px;
+        }
+        
+        .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .cost-val {
+            color: #3fb950;
+            font-family: 'SF Mono', Consolas, monospace;
+            font-weight: 600;
+        }
+
+        /* Metric Cards - Summary (Middle) */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        
+        .metric-val {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+        }
+        
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        /* Pulse Animation for Active */
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(46, 160, 67, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0); }
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #2ea043;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        
+        .status-dot.pulse {
+            animation: pulse-green 2s infinite;
+        }
+
+        .rate-badge {
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 0.65rem;
+            font-weight: bold;
+            margin-left: 4px;
+        }
+        .rate-HIGH { color: #f85149; background: rgba(248, 81, 73, 0.1); }
+        .rate-MEDIUM { color: #d29922; background: rgba(210, 153, 34, 0.1); }
+        .rate-LOW { color: #3fb950; background: rgba(63, 185, 80, 0.1); }
+
+        /* Metric Optional Styling */
+        .metric-optional {
+            font-size: 0.7rem;
+            color: #8b949e;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .metric-important {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #c9d1d9;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            color: #484f58;
+            padding: 20px 0;
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: 40px;
+        }
+
+        /* Completed Sessions Details */
+        details {
+            margin-top: 20px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--card-bg);
+        }
+        
+        summary {
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        
+        summary:hover {
+            color: var(--text-primary);
+        }
+
+        /* Utility */
+        .text-mono { font-family: 'SF Mono', Consolas, monospace; }
+        .text-accent { color: #58a6ff; }
+        .text-dim { color: #6e7681; }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .active-sessions-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 900px) {
+            .active-sessions-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (min-width: 2200px) {
+            .active-sessions-grid { grid-template-columns: repeat(5, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    
+    <div class="container-fluid">
+        <!-- 1. Active Sessions (Top Priority) -->
+        <section id="active-sessions">
+            <div class="section-header">
+                <h2>活跃会话</h2>
+                <span class="badge rounded-pill" id="active-count-badge">0</span>
+                <span class="ms-auto text-dim small" id="last-updated">更新中...</span>
+            </div>
+            
+            <div id="active-sessions-container" class="active-sessions-grid">
+                <!-- Cards injected here -->
+            </div>
+            
+            <div id="empty-state" class="text-center py-5 text-dim" style="display: none;">
+                <h5>暂无活跃会话</h5>
+                <p>等待任务...</p>
+            </div>
+        </section>
+
+        <!-- 2. Summary Metrics (Middle) -->
+        <section id="summary-metrics">
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div class="metric-label">今日成本</div>
+                    <div class="metric-val text-success" id="today-cost">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">今日代币</div>
+                    <div class="metric-val" id="today-tokens">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">活跃会话</div>
+                    <div class="metric-val text-accent" id="active-metric">-</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Completed Sessions (Collapsible) -->
+        <details id="completed-sessions">
+            <summary>已完成会话</summary>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm text-secondary mb-0">
+                    <thead style="font-size: 0.8rem;">
+                        <tr>
+                            <th width="15%" class="ps-3">时间</th>
+                            <th width="40%">任务/会话</th>
+                            <th width="20%">模型</th>
+                            <th width="15%">成本</th>
+                        </tr>
+                    </thead>
+                    <tbody id="completed-sessions-body" style="font-size: 0.85rem;">
+                        <!-- Rows injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </details>
+
+        <!-- 3. System Info (Bottom) -->
+        <footer id="system-info">
+            OCMonitor Dashboard | 更新: <span id="footer-time">-</span> | v1.2
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function formatNumber(num) {
+            if (num === null || num === undefined) return 'N/A';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function getContextColor(percent) {
+            if (percent > 80) return 'bg-danger';
+            if (percent > 60) return 'bg-warning';
+            return 'bg-success';
+        }
+
+        function createActiveCard(session) {
+            // Null checks
+            const contextSize = session.context_size || 0;
+            const contextLimit = session.context_window || 200000;
+            const ctxPercent = session.has_token_data ? Math.min(100, Math.round((contextSize / contextLimit) * 100)) : 0;
+            const ctxColor = getContextColor(ctxPercent);
+            
+            const rateVal = session.has_token_data ? `${formatNumber(session.tokens_per_minute)}/min` : '统计中...';
+            
+            // Truncate name to 20 chars
+            let displayName = session.name;
+            if (displayName.length > 20) displayName = displayName.substring(0, 20) + '...';
+            
+            // Project
+            const project = session.project_path.split('/').pop();
+
+            // Finish Reason Icon
+            let finishIcon = '';
+            if (session.finish_reason === 'stop') finishIcon = '<span title="正常结束">✓</span>';
+            else if (session.finish_reason === 'tool-calls') finishIcon = '<span title="工具调用">🔧</span>';
+            else if (session.finish_reason === 'length') finishIcon = '<span title="长度限制" class="text-danger">⚠️</span>';
+
+            // New Metrics HTML
+            let extraMetrics = '';
+            if (session.has_latency) {
+                extraMetrics += `<div class="metric-optional">延迟: <span class="text-white">${session.avg_latency}s</span> | 时长: ${session.duration_formatted}</div>`;
+            } else {
+                extraMetrics += `<div class="metric-optional">时长: ${session.duration_formatted}</div>`;
+            }
+
+            let cacheMetrics = '';
+            if (session.has_cache_data) {
+                cacheMetrics = `<div class="metric-optional" title="缓存节省">缓存: <span class="text-accent">${session.cache_hit_rate}%</span> ⚡ 节省 $${session.cache_savings}</div>`;
+            }
+
+            let reasoningMetrics = '';
+            if (session.has_reasoning) {
+                reasoningMetrics = `<div class="metric-optional">推理: <span class="text-white">${formatNumber(session.reasoning_tokens)}</span> tok</div>`;
+            }
+
+            let fileMetrics = '';
+            if (session.has_file_changes) {
+                fileMetrics = `<div class="metric-optional" title="文件变更">文件: <span class="text-white">${session.files_changed}</span> (+${session.lines_added}/-${session.lines_deleted})</div>`;
+            }
+
+            return `
+            <div class="session-card active ${session.has_error ? 'error' : ''}">
+                <div class="session-header">
+                    <div class="d-flex align-items-center mb-1">
+                        <span class="status-dot pulse"></span>
+                        <div class="session-title" title="${session.name}">${displayName}</div>
+                        <div class="ms-auto small text-muted">${finishIcon}</div>
+                    </div>
+                    <div class="session-meta-line">
+                        <span>项目: ${project}</span>
+                        <span class="text-accent">${session.time_since_activity}</span>
+                    </div>
+                </div>
+                
+                <div class="card-body-stats">
+                    <!-- Context Usage -->
+                    <div class="stat-group">
+                        <div class="stat-group-label">
+                            <span>上下文: ${formatNumber(contextSize)}/${formatNumber(contextLimit)} [${ctxPercent}%]</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar ${ctxColor}" style="width: ${ctxPercent}%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-group mt-1">
+                        <div class="stat-group-label">
+                             <span>速率: ${rateVal} <span class="rate-badge rate-${session.rate_level}">[${session.rate_level === 'HIGH' ? '高' : (session.rate_level === 'MEDIUM' ? '中' : '低')}]</span></span>
+                        </div>
+                        ${extraMetrics}
+                    </div>
+
+                    <!-- Flexible Row for new metrics -->
+                    <div class="stat-group">
+                        ${cacheMetrics}
+                        ${reasoningMetrics}
+                        ${fileMetrics}
+                    </div>
+                    
+                    <div class="stat-group mt-auto">
+                        <div class="model-name" title="${session.model}">${session.model.split('/').pop()}</div>
+                    </div>
+                </div>
+
+                <div class="session-footer">
+                    <div class="bottom-row">
+                        <span>交互: ${session.interactions}</span>
+                        <span class="cost-val">${session.has_cost_data ? session.cost : '统计中...'}</span>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function createCompletedRow(session) {
+            return `
+            <tr>
+                <td class="text-mono text-dim ps-3">${session.started.split(' ')[1]}</td>
+                <td>
+                    <div class="fw-bold text-truncate text-white" style="max-width: 300px;">${session.name}</div>
+                    <div class="text-dim small text-truncate">📂 ${session.project_path.split('/').pop()}</div>
+                </td>
+                <td><span class="text-dim small">${session.model.split('/').pop()}</span></td>
+                <td class="text-mono text-success small">${session.has_cost_data ? session.cost : 'N/A'}</td>
+            </tr>
+            `;
+        }
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                const sessions = data.sessions;
+                const metrics = data.metrics;
+                
+                const activeSessions = sessions.filter(s => s.status === 'Active');
+                const completedSessions = sessions.filter(s => s.status !== 'Active');
+
+                // Update Summary Metrics
+                document.getElementById('today-cost').textContent = metrics.today_cost;
+                document.getElementById('today-tokens').textContent = formatNumber(metrics.today_tokens);
+                document.getElementById('active-metric').textContent = metrics.active_count;
+                
+                document.getElementById('active-count-badge').textContent = activeSessions.length;
+
+                // Render Active Sessions
+                const activeContainer = document.getElementById('active-sessions-container');
+                const emptyState = document.getElementById('empty-state');
+                
+                if (activeSessions.length > 0) {
+                    emptyState.style.display = 'none';
+                    activeContainer.innerHTML = activeSessions.map(createActiveCard).join('');
+                } else {
+                    activeContainer.innerHTML = '';
+                    emptyState.style.display = 'block';
+                }
+
+                // Render Completed Sessions
+                const completedBody = document.getElementById('completed-sessions-body');
+                completedBody.innerHTML = completedSessions.slice(0, 20).map(createCompletedRow).join('');
+
+                // Update timestamp
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString();
+                document.getElementById('last-updated').textContent = "更新于: " + timeStr;
+                document.getElementById('footer-time').textContent = now.toLocaleString();
+
+            } catch (error) {
+                console.error("Fetch error:", error);
+            }
+        }
+
+        // Auto-refresh
+        setInterval(updateDashboard, 5000);
+        updateDashboard();
+    </script>
+</body>
+</html>
