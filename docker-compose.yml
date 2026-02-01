@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  opencode-monitor-dashboard:
+    build: .
+    container_name: opencode-monitor-dashboard
+    ports:
+      - "38002:38002"
+    environment:
+      OPENCODE_DATA_DIR: /data/opencode/storage/message
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 38002
+      AUTO_REFRESH_INTERVAL: 5
+    volumes:
+      - ~/.local/share/opencode:/data/opencode:ro
+    restart: unless-stopped
