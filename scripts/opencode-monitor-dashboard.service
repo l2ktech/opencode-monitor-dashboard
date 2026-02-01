@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenCode Monitor Dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/opencode-monitor-dashboard
+ExecStart=/usr/bin/env python3 %h/opencode-monitor-dashboard/app.py
+Restart=always
+RestartSec=3
+Environment=OPENCODE_DATA_DIR=%h/.local/share/opencode/storage/message
+Environment=DASHBOARD_HOST=0.0.0.0
+Environment=DASHBOARD_PORT=38002
+Environment=AUTO_REFRESH_INTERVAL=5
+StandardOutput=append:%h/opencode-monitor-dashboard/logs/stdout.log
+StandardError=append:%h/opencode-monitor-dashboard/logs/stderr.log
+
+[Install]
+WantedBy=default.target
