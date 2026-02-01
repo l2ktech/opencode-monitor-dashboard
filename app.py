@@ -1,14 +1,18 @@
+# pyright: reportOperatorIssue=false
 import os
 import json
 import time
 import math
-from flask import Flask, render_template, jsonify
+import requests
+from typing import Optional, Dict, Any, cast, List
+from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 DATA_DIR = os.path.expanduser("~/.local/share/opencode/storage/message")
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dashboard-config.json')
 
-def get_session_stats(session_path):
+def get_session_stats(session_path: str) -> Optional[Dict[str, Any]]:
     session_id = os.path.basename(session_path)
     messages = []
     try:
@@ -84,12 +88,28 @@ def get_session_stats(session_path):
     latency_count = 0
     
     models_used = {} # {model_name: {'tokens': 0, 'cost': 0}}
+    agent_stats = {}
+    model_stats = {}
     
     valid_token_messages = 0
     has_cost_data = False
     
     # Finish reason (from last assistant message)
     finish_reason = None
+
+    def ensure_stats(container, key):
+        if key not in container:
+            container[key] = {
+                'calls': 0,
+                'success': 0,
+                'failed': 0,
+                'tool_calls': 0,
+                'length': 0,
+                'other': 0,
+                'tokens': 0,
+                'cost': 0.0
+            }
+        return container[key]
 
     for m in messages:
         # Basic stats
@@ -121,11 +141,17 @@ def get_session_stats(session_path):
         if 'model' in m and isinstance(m['model'], dict):
              model = m['model'].get('modelID', model)
              provider = m['model'].get('providerID', provider)
+
+        msg_model = "Unknown"
+        if 'modelID' in m:
+             msg_model = m['modelID']
+        if 'model' in m and isinstance(m['model'], dict):
+             msg_model = m['model'].get('modelID', msg_model)
              
         # Track model usage
-        if model != "Unknown":
-            if model not in models_used:
-                models_used[model] = {'tokens': 0, 'cost': 0.0}
+        if msg_model != "Unknown":
+            if msg_model not in models_used:
+                models_used[msg_model] = {'tokens': 0, 'cost': 0.0}
         
         msg_input = 0
         msg_output = 0
@@ -152,9 +178,44 @@ def get_session_stats(session_path):
         
         total_cost += msg_cost
         
-        if model != "Unknown":
-            models_used[model]['tokens'] += (msg_input + msg_output)
-            models_used[model]['cost'] += msg_cost
+        if msg_model != "Unknown":
+            models_used[msg_model]['tokens'] += (msg_input + msg_output)
+            models_used[msg_model]['cost'] += msg_cost
+
+        if m.get('role') == 'assistant':
+            msg_agent = m.get('agent', 'Unknown')
+            finish = m.get('finish')
+            has_msg_error = bool(m.get('error'))
+
+            agent_entry = ensure_stats(agent_stats, msg_agent)
+            agent_entry['calls'] += 1
+            if has_msg_error:
+                agent_entry['failed'] += 1
+            elif finish == 'stop':
+                agent_entry['success'] += 1
+            elif finish == 'tool-calls':
+                agent_entry['tool_calls'] += 1
+            elif finish == 'length':
+                agent_entry['length'] += 1
+            else:
+                agent_entry['other'] += 1
+            agent_entry['tokens'] += (msg_input + msg_output)
+            agent_entry['cost'] += msg_cost
+
+            model_entry = ensure_stats(model_stats, msg_model)
+            model_entry['calls'] += 1
+            if has_msg_error:
+                model_entry['failed'] += 1
+            elif finish == 'stop':
+                model_entry['success'] += 1
+            elif finish == 'tool-calls':
+                model_entry['tool_calls'] += 1
+            elif finish == 'length':
+                model_entry['length'] += 1
+            else:
+                model_entry['other'] += 1
+            model_entry['tokens'] += (msg_input + msg_output)
+            model_entry['cost'] += msg_cost
             
         # File changes (check latest summary)
         if 'summary' in m and isinstance(m['summary'], dict):
@@ -227,6 +288,10 @@ def get_session_stats(session_path):
         # Progress bar based on CURRENT turn usage vs Limit
         context_percentage = min(100, int((current_turn_context / context_window) * 100))
 
+    context_remaining = max(0, context_window - current_turn_context)
+    context_overage = max(0, current_turn_context - context_window)
+    context_compact_needed = context_overage if context_overage > 0 else 0
+
     # Time percentage
     max_duration_seconds = 5 * 3600
     time_percentage = min(100, int((seconds_total / max_duration_seconds) * 100))
@@ -266,6 +331,7 @@ def get_session_stats(session_path):
     
     # Time since last activity friendly string
     delta = now - last_activity_dt
+    seconds_since_activity = int(delta.total_seconds())
     if delta.days > 0:
         time_since = f"{delta.days}天前"
     elif delta.seconds > 3600:
@@ -307,6 +373,7 @@ def get_session_stats(session_path):
         "project_path": project_path,
         "last_activity": datetime.fromtimestamp(last_activity_ms / 1000).strftime('%Y-%m-%d %H:%M:%S'),
         "time_since_activity": time_since,
+        "seconds_since_activity": seconds_since_activity,
         "interactions": interactions,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -321,6 +388,9 @@ def get_session_stats(session_path):
         "total_accumulated_context": total_accumulated_context,
         "context_window": context_window,
         "context_percentage": context_percentage,
+        "context_remaining": context_remaining,
+        "context_overage": context_overage,
+        "context_compact_needed": context_compact_needed,
         "time_percentage": time_percentage,
         "cost": f"${total_cost:.4f}",
         "cost_val": total_cost,
@@ -343,42 +413,200 @@ def get_session_stats(session_path):
         "lines_added": lines_added,
         "lines_deleted": lines_deleted,
         "has_file_changes": files_changed > 0,
-        "finish_reason": finish_reason
+        "finish_reason": finish_reason,
+        "agent_stats": agent_stats,
+        "model_stats": model_stats
     }
+
+def load_config() -> Dict[str, Any]:
+    if not os.path.exists(CONFIG_FILE):
+        return {"devices": []}
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {"devices": []}
+
+def fetch_remote_sessions(device_url: str) -> Optional[Dict[str, Any]]:
+    try:
+        response = requests.get(f"{device_url}/api/sessions", timeout=3)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return None
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/api/devices')
+def get_devices():
+    config = load_config()
+    return jsonify({"devices": config.get("devices", [])})
+
 @app.route('/api/sessions')
 def sessions():
     sessions_data = []
+    overall_agent_stats = {}
+    overall_model_stats = {}
+
+    def to_int(value: object) -> int:
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                return 0
+        return 0
+
+    def to_float(value: object) -> float:
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    def is_recent(timestamp_val: object, today_start_ts_val: int) -> bool:
+        if isinstance(timestamp_val, bool):
+            return int(timestamp_val) > today_start_ts_val
+        if isinstance(timestamp_val, (int, float)):
+            return int(timestamp_val) > today_start_ts_val
+        if isinstance(timestamp_val, str):
+            try:
+                return int(float(timestamp_val)) > today_start_ts_val
+            except ValueError:
+                return False
+        return False
+
+    def merge_stats(target, source):
+        for key, stats in source.items():
+            if key not in target:
+                target[key] = {
+                    'calls': 0,
+                    'success': 0,
+                    'failed': 0,
+                    'tool_calls': 0,
+                    'length': 0,
+                    'other': 0,
+                    'tokens': 0,
+                    'cost': 0.0
+                }
+            calls = to_int(stats.get('calls'))
+            success = to_int(stats.get('success'))
+            failed = to_int(stats.get('failed'))
+            tool_calls = to_int(stats.get('tool_calls'))
+            length = to_int(stats.get('length'))
+            other = to_int(stats.get('other'))
+            tokens = to_int(stats.get('tokens'))
+            cost = to_float(stats.get('cost'))
+
+            target_entry = target[key]
+            if not isinstance(target_entry, dict):
+                continue
+
+            entry_calls = to_int(target_entry.get('calls')) or 0
+            entry_success = to_int(target_entry.get('success')) or 0
+            entry_failed = to_int(target_entry.get('failed')) or 0
+            entry_tool_calls = to_int(target_entry.get('tool_calls')) or 0
+            entry_length = to_int(target_entry.get('length')) or 0
+            entry_other = to_int(target_entry.get('other')) or 0
+            entry_tokens = to_int(target_entry.get('tokens')) or 0
+            entry_cost = to_float(target_entry.get('cost')) or 0.0
+
+            if isinstance(calls, int):
+                target_entry['calls'] = entry_calls + calls
+            if isinstance(success, int):
+                target_entry['success'] = entry_success + success
+            if isinstance(failed, int):
+                target_entry['failed'] = entry_failed + failed
+            if isinstance(tool_calls, int):
+                target_entry['tool_calls'] = entry_tool_calls + tool_calls
+            if isinstance(length, int):
+                target_entry['length'] = entry_length + length
+            if isinstance(other, int):
+                target_entry['other'] = entry_other + other
+            if isinstance(tokens, int):
+                target_entry['tokens'] = entry_tokens + tokens
+            if isinstance(cost, (int, float)):
+                target_entry['cost'] = float(entry_cost) + float(cost)
     
     # Daily aggregation
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_start_ts = int(today_start.timestamp() * 1000)
+    today_start: datetime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_ts: int = int(today_start.timestamp() * 1000)
     
-    today_cost = 0.0
-    today_tokens = 0
-    active_count = 0
+    today_cost: float = 0.0
+    today_tokens: int = 0
+    active_count: int = 0
+    by_device_stats = {}
+    
+    config = load_config()
+    devices = config.get('devices', [])
+    
+    for device in devices:
+        if not device.get('enabled', True):
+            continue
+            
+        device_id = device.get('id', 'unknown')
+        device_name = device.get('name', device_id)
+        device_url = device.get('url', '')
+        
+        if device_url == 'local':
+            by_device_stats[device_id] = {'name': device_name, 'sessions': 0, 'cost': 0.0, 'tokens': 0, 'active': 0}
+        else:
+            remote_data = fetch_remote_sessions(device_url)
+            if remote_data:
+                remote_sessions = remote_data.get('sessions', [])
+                for session in remote_sessions:
+                    session['device_id'] = device_id
+                    session['device_name'] = device_name
+                    sessions_data.append(session)
+                    
+                    merge_stats(overall_agent_stats, session.get('agent_stats', {}))
+                    merge_stats(overall_model_stats, session.get('model_stats', {}))
+                    
+                    if session.get('status') == 'Active':
+                        active_count += 1
+                    
+                    if is_recent(session.get('timestamp'), today_start_ts):
+                        today_cost += to_float(session.get('cost_val'))
+                        today_tokens += to_int(session.get('total_tokens'))
     
     if os.path.exists(DATA_DIR):
         try:
-             session_dirs = [d for d in os.listdir(DATA_DIR) if d.startswith('ses_')]
-             
-             for d in session_dirs:
-                 path = os.path.join(DATA_DIR, d)
-                 if os.path.isdir(path):
-                     stats = get_session_stats(path)
-                     if stats:
-                         sessions_data.append(stats)
-                         
-                         if stats['status'] == 'Active':
-                             active_count += 1
-                         
-                         if stats['timestamp'] > today_start_ts:
-                             today_cost += stats['cost_val']
-                             today_tokens += stats['total_tokens']
+            session_dirs = [d for d in os.listdir(DATA_DIR) if d.startswith('ses_')]
+            
+            for d in session_dirs:
+                path = os.path.join(DATA_DIR, d)
+                if os.path.isdir(path):
+                    stats = get_session_stats(path)
+                    if isinstance(stats, dict):
+                        stats_dict: Dict[str, Any] = stats
+                        stats_dict['device_id'] = 'local'
+                        stats_dict['device_name'] = '本地设备'
+                        sessions_data.append(stats_dict)
+
+                        merge_stats(overall_agent_stats, stats_dict.get('agent_stats', {}))
+                        merge_stats(overall_model_stats, stats_dict.get('model_stats', {}))
+                        
+                        stats_status = stats_dict.get('status')
+                        if stats_status == 'Active':
+                            active_count += 1
+                        
+                        if is_recent(stats_dict.get('timestamp'), today_start_ts):
+                            stats_cost_val: float = to_float(stats_dict.get('cost_val'))
+                            today_cost = float(today_cost) + stats_cost_val
+
+                            stats_tokens_val: int = to_int(stats_dict.get('total_tokens'))
+                            today_tokens = int(today_tokens) + stats_tokens_val
 
         except Exception as e:
             return jsonify({"error": str(e)})
@@ -391,7 +619,9 @@ def sessions():
         "metrics": {
             "today_cost": f"${today_cost:.2f}",
             "today_tokens": today_tokens,
-            "active_count": active_count
+            "active_count": active_count,
+            "agent_stats": overall_agent_stats,
+            "model_stats": overall_model_stats
         }
     })
 

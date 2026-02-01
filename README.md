@@ -1,88 +1,95 @@
-# OpenCode Monitor Dashboard
+# OpenCode Monitor
 
-轻量级 Web 实时监控面板，专为 OpenCode 会话监控与 iPad/平板展示优化。
-
-## 核心特性
-
-- 4-5 列紧凑网格，12-16 会话同屏
-- 5 秒自动刷新
-- 上下文占用、token 速率、平均延迟、缓存效率、成本统计
-- 超出窗口提示：显示“剩余 / 超出 / 需压缩”
-- 崩溃自动重启（macOS LaunchAgent / Linux systemd）
-- Docker 一键启动
+多设备 OpenCode 会话监控系统，将所有设备的会话聚合到中央 Dashboard，在单一页面统一查看。
 
 ## 快速开始
 
-### 本地运行
+### 中央 Dashboard（Mac Mini）
 
 ```bash
-pip3 install -r requirements.txt
+cd dashboard-ocmonitor
 python3 app.py
 ```
 
-访问：`http://localhost:38002`
+访问：`http://192.168.1.4:38002`
 
-### Docker
+### 添加新设备
 
-```bash
-docker build -t opencode-monitor-dashboard .
-docker run -d \
-  -p 38002:38002 \
-  -v ~/.local/share/opencode:/data/opencode:ro \
-  --name opencode-monitor-dashboard \
-  opencode-monitor-dashboard
+📖 **详细配置指南**：查看 [`.agentdocs/device-setup-guide.md`](.agentdocs/device-setup-guide.md)
+
+**快速步骤**：
+1. 在目标设备上克隆项目并安装依赖
+2. 启动 Agent：`python3 app.py`
+3. 在 `dashboard-config.json` 中添加设备配置
+4. 重启 Dashboard
+
+## 文档
+
+### 核心文档
+- [设备添加指南](.agentdocs/device-setup-guide.md) - Mac、Windows、Android 设备配置步骤
+- [文档索引](.agentdocs/index.md) - 架构、配置、技术约束
+
+### 功能特性
+- ✅ 多设备数据聚合
+- ✅ 单页面统一查看
+- ✅ 自动刷新（5-10秒）
+- ✅ 设备标签标识
+- ✅ 支持任意数量设备
+
+## 项目结构
+
+```
+dashboard-ocmonitor/
+├── .agentdocs/              # 文档目录
+│   ├── index.md            # 文档索引
+│   └── device-setup-guide.md # 设备配置指南
+├── app.py                  # 主程序
+├── dashboard-config.json   # 设备配置文件
+├── deploy-macbook-agent.sh # MacBook 部署脚本
+└── scan-devices.sh         # 局域网设备扫描
 ```
 
-### Docker Compose
+## 配置文件
 
-```bash
-docker compose up -d
+### dashboard-config.json
+
+```json
+{
+  "devices": [
+    {
+      "id": "local",
+      "name": "Mac Mini",
+      "url": "local",
+      "enabled": true
+    },
+    {
+      "id": "macbook-01",
+      "name": "MacBook",
+      "url": "http://192.168.1.246:38002",
+      "enabled": true
+    }
+  ]
+}
 ```
 
-## iPad 使用
+## 网络要求
 
-1. Mac 与 iPad 在同一网络
-2. 查询 IP：
-   ```bash
-   ifconfig | grep "inet " | grep -v 127.0.0.1
-   ```
-3. Safari 访问：`http://<IP>:38002`
+- 所有设备在同一局域网
+- 端口 38002 开放
+- 设备之间可以互相 ping 通
 
-## 环境变量
-
-支持 `.env` 配置：
+## 测试连接
 
 ```bash
-OPENCODE_DATA_DIR=~/.local/share/opencode/storage/message
-DASHBOARD_HOST=0.0.0.0
-DASHBOARD_PORT=38002
-AUTO_REFRESH_INTERVAL=5
+# 测试设备 Agent 是否运行
+curl http://<设备IP>:38002/api/sessions
 ```
 
-## macOS 服务
+## 常见问题
 
-```bash
-./scripts/install-service.sh
-./scripts/start.sh
-./scripts/stop.sh
-./scripts/restart.sh
-./scripts/status.sh
-```
+查看 [设备添加指南](.agentdocs/device-setup-guide.md#常见问题) 获取详细排查步骤。
 
-## Linux systemd
+## 安全提示
 
-```bash
-cp scripts/opencode-monitor-dashboard.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now opencode-monitor-dashboard
-```
-
-## 与 ocmonitor-share / OpenChamber 的关系
-
-- ocmonitor-share：CLI 分析与报表
-- OpenChamber：完整开发 IDE
-- 本项目：**实时监控面板（iPad/平板专用）**
-
-## 许可证
-
-MIT License
+⚠️ 当前系统仅在局域网内运行，不要暴露到公网
+⚠️ 没有身份验证机制，确保局域网环境可信

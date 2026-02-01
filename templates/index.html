@@ -186,6 +186,36 @@
             margin-right: auto;
         }
 
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stats-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .stats-table {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+        }
+
+        .stats-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom-color: var(--border-color);
+        }
+
+        .stats-table td {
+            color: var(--text-primary);
+            border-top-color: rgba(255, 255, 255, 0.05);
+        }
+
         .metric-card {
             background: var(--card-bg);
             border-radius: 8px;
@@ -289,6 +319,7 @@
         /* Responsive */
         @media (max-width: 1200px) {
             .active-sessions-grid { grid-template-columns: repeat(3, 1fr); }
+            .stats-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 900px) {
             .active-sessions-grid { grid-template-columns: repeat(2, 1fr); }
@@ -337,6 +368,58 @@
             </div>
         </section>
 
+        <!-- 3. Agent & Model Stats -->
+        <section id="agent-model-stats">
+            <div class="stats-grid">
+                <div class="stats-card">
+                    <div class="section-header">
+                        <h2>子代理统计</h2>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover stats-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th width="28%">子代理</th>
+                                    <th width="12%">调用</th>
+                                    <th width="12%">成功</th>
+                                    <th width="12%">失败</th>
+                                    <th width="12%">工具</th>
+                                    <th width="12%">长度</th>
+                                    <th width="12%">成功率</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agent-stats-body">
+                                <tr><td colspan="7" class="text-center text-dim">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <div class="section-header">
+                        <h2>模型统计</h2>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover stats-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th width="36%">模型</th>
+                                    <th width="12%">调用</th>
+                                    <th width="12%">成功</th>
+                                    <th width="12%">失败</th>
+                                    <th width="12%">成功率</th>
+                                    <th width="16%">Tokens</th>
+                                    <th width="12%">成本</th>
+                                </tr>
+                            </thead>
+                            <tbody id="model-stats-body">
+                                <tr><td colspan="7" class="text-center text-dim">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- 4. Completed Sessions (Collapsible) -->
         <details id="completed-sessions">
             <summary>已完成会话</summary>
@@ -376,6 +459,73 @@
             if (percent > 80) return 'bg-danger';
             if (percent > 60) return 'bg-warning';
             return 'bg-success';
+        }
+
+        function formatRate(success, total) {
+            if (!total) return '0%';
+            return Math.round((success / total) * 100) + '%';
+        }
+
+        function renderAgentStats(agentStats) {
+            const body = document.getElementById('agent-stats-body');
+            const entries = Object.entries(agentStats || {})
+                .sort((a, b) => (b[1].calls || 0) - (a[1].calls || 0));
+
+            if (!entries.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-center text-dim">暂无数据</td></tr>';
+                return;
+            }
+
+            body.innerHTML = entries.map(([name, stats]) => {
+                const calls = stats.calls || 0;
+                const success = stats.success || 0;
+                const failed = stats.failed || 0;
+                const toolCalls = stats.tool_calls || 0;
+                const length = stats.length || 0;
+                const rate = formatRate(success, calls);
+                return `
+                <tr>
+                    <td class="text-truncate" title="${name}">${name}</td>
+                    <td>${calls}</td>
+                    <td>${success}</td>
+                    <td>${failed}</td>
+                    <td>${toolCalls}</td>
+                    <td>${length}</td>
+                    <td class="text-accent">${rate}</td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function renderModelStats(modelStats) {
+            const body = document.getElementById('model-stats-body');
+            const entries = Object.entries(modelStats || {})
+                .sort((a, b) => (b[1].calls || 0) - (a[1].calls || 0));
+
+            if (!entries.length) {
+                body.innerHTML = '<tr><td colspan="7" class="text-center text-dim">暂无数据</td></tr>';
+                return;
+            }
+
+            body.innerHTML = entries.map(([name, stats]) => {
+                const calls = stats.calls || 0;
+                const success = stats.success || 0;
+                const failed = stats.failed || 0;
+                const rate = formatRate(success, calls);
+                const tokens = formatNumber(stats.tokens || 0);
+                const cost = (stats.cost || 0).toFixed(2);
+                return `
+                <tr>
+                    <td class="text-truncate" title="${name}">${name.split('/').pop()}</td>
+                    <td>${calls}</td>
+                    <td>${success}</td>
+                    <td>${failed}</td>
+                    <td class="text-accent">${rate}</td>
+                    <td class="text-mono">${tokens}</td>
+                    <td class="text-mono text-success">$${cost}</td>
+                </tr>
+                `;
+            }).join('');
         }
 
         function createActiveCard(session) {
@@ -537,6 +687,9 @@
                 document.getElementById('today-cost').textContent = metrics.today_cost;
                 document.getElementById('today-tokens').textContent = formatNumber(metrics.today_tokens);
                 document.getElementById('active-metric').textContent = metrics.active_count;
+
+                renderAgentStats(metrics.agent_stats);
+                renderModelStats(metrics.model_stats);
                 
                 document.getElementById('active-count-badge').textContent = activeSessions.length;
 

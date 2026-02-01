@@ -1,0 +1,16 @@
+{
+  "devices": [
+    {
+      "id": "local",
+      "name": "Mac Mini",
+      "url": "local",
+      "enabled": true
+    },
+    {
+      "id": "macbook-01",
+      "name": "MacBook",
+      "url": "http://192.168.1.246:38002",
+      "enabled": true
+    }
+  ]
+}
