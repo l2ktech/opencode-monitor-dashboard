@@ -664,7 +664,12 @@
 
         async function updateDashboard() {
             try {
-                const response = await fetch('/api/sessions');
+                const headers = {};
+                const token = localStorage.getItem('ocmonitor_token');
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch('/api/sessions', { headers });
                 const data = await response.json();
                 const sessions = data.sessions;
                 const metrics = data.metrics;

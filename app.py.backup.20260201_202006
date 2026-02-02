@@ -3,51 +3,13 @@ import os
 import json
 import time
 import math
-import logging
 import requests
 from typing import Optional, Dict, Any, cast, List
 from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
-
 app = Flask(__name__)
-DATA_DIR = os.environ.get("OCMONITOR_DATA_DIR") or os.path.expanduser(
-    "~/.local/share/opencode/storage/message"
-)
-PORT = int(os.environ.get("OCMONITOR_PORT", "38002"))
-API_TOKEN = os.environ.get("OCMONITOR_API_TOKEN")
-CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "dashboard-config.json"
-)
-
-
-def require_auth(f):
-    def decorated(*args, **kwargs):
-        if API_TOKEN:
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
-                return jsonify(
-                    {"error": "Missing or invalid Authorization header"}
-                ), 401
-            token = auth_header[7:]
-            if token != API_TOKEN:
-                return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-
-    decorated.__name__ = f.__name__
-    return decorated
-
-
-PORT = int(os.environ.get("OCMONITOR_PORT", "38002"))
-API_TOKEN = os.environ.get("OCMONITOR_API_TOKEN")
-CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "dashboard-config.json"
-)
-PORT = int(os.environ.get("OCMONITOR_PORT", "38002"))
+DATA_DIR = os.path.expanduser("~/.local/share/opencode/storage/message")
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "dashboard-config.json"
 )
@@ -57,6 +19,7 @@ def get_session_stats(session_path: str) -> Optional[Dict[str, Any]]:
     session_id = os.path.basename(session_path)
     messages = []
     try:
+        # Read all json files in the session directory
         files = [f for f in os.listdir(session_path) if f.endswith(".json")]
         if not files:
             return None
@@ -65,12 +28,8 @@ def get_session_stats(session_path: str) -> Optional[Dict[str, Any]]:
             try:
                 with open(os.path.join(session_path, f), "r") as file:
                     messages.append(json.load(file))
-            except json.JSONDecodeError as e:
-                logger.warning(
-                    f"Malformed JSON in {os.path.join(session_path, f)}: {str(e)}"
-                )
             except Exception:
-                continue
+                continue  # Skip malformed files
     except FileNotFoundError:
         return None
 
@@ -487,16 +446,8 @@ def fetch_remote_sessions(device_url: str) -> Optional[Dict[str, Any]]:
         response = requests.get(f"{device_url}/api/sessions", timeout=3)
         if response.status_code == 200:
             return response.json()
-        else:
-            logger.error(
-                f"Remote fetch failed for {device_url}: HTTP {response.status_code}"
-            )
-    except requests.exceptions.Timeout:
-        logger.error(f"Remote fetch timeout for {device_url}")
-    except requests.exceptions.ConnectionError:
-        logger.error(f"Remote fetch connection error for {device_url}")
-    except Exception as e:
-        logger.error(f"Remote fetch error for {device_url}: {str(e)}")
+    except Exception:
+        pass
     return None
 
 
@@ -505,25 +456,14 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
-
-
 @app.route("/api/devices")
-@require_auth
 def get_devices():
     config = load_config()
     return jsonify({"devices": config.get("devices", [])})
 
 
 @app.route("/api/sessions")
-@require_auth
 def sessions():
-    sort_by = request.args.get("sort", "device")
-    order = request.args.get("order", "asc")
-    filter_device = request.args.get("filter")
-
     sessions_data = []
     overall_agent_stats = {}
     overall_model_stats = {}
@@ -645,7 +585,6 @@ def sessions():
                 "cost": 0.0,
                 "tokens": 0,
                 "active": 0,
-                "status": "online",
             }
         else:
             remote_data = fetch_remote_sessions(device_url)
@@ -665,30 +604,6 @@ def sessions():
                     if is_recent(session.get("timestamp"), today_start_ts):
                         today_cost += to_float(session.get("cost_val"))
                         today_tokens += to_int(session.get("total_tokens"))
-
-                by_device_stats[device_id] = {
-                    "name": device_name,
-                    "sessions": len(remote_sessions),
-                    "cost": sum(
-                        to_float(s.get("cost_val", 0)) for s in remote_sessions
-                    ),
-                    "tokens": sum(
-                        to_int(s.get("total_tokens", 0)) for s in remote_sessions
-                    ),
-                    "active": sum(
-                        1 for s in remote_sessions if s.get("status") == "Active"
-                    ),
-                    "status": "online",
-                }
-            else:
-                by_device_stats[device_id] = {
-                    "name": device_name,
-                    "sessions": 0,
-                    "cost": 0.0,
-                    "tokens": 0,
-                    "active": 0,
-                    "status": "offline",
-                }
 
     if os.path.exists(DATA_DIR):
         try:
@@ -730,30 +645,6 @@ def sessions():
     # Sort by timestamp descending (newest first)
     sessions_data.sort(key=lambda x: x["timestamp"], reverse=True)
 
-    if sort_by == "active":
-        reverse = order == "desc"
-        sorted_devices = sorted(
-            by_device_stats.items(),
-            key=lambda x: x[1].get("active", 0),
-            reverse=reverse,
-        )
-    elif sort_by == "device":
-        reverse = order == "desc"
-        sorted_devices = sorted(
-            by_device_stats.items(),
-            key=lambda x: x[1].get("name", ""),
-            reverse=reverse,
-        )
-    else:
-        sorted_devices = list(by_device_stats.items())
-
-    if filter_device:
-        sorted_devices = [
-            (device_id, stats)
-            for device_id, stats in sorted_devices
-            if filter_device.lower() in stats.get("name", "").lower()
-        ]
-
     return jsonify(
         {
             "sessions": sessions_data,
@@ -769,7 +660,5 @@ def sessions():
 
 
 if __name__ == "__main__":
-    # 修复 Tk/Tkinter 崩溃：禁用 DISPLAY 环境变量
-    os.environ.pop("DISPLAY", None)
     # Run on 0.0.0.0:38002
-    app.run(host="0.0.0.0", port=PORT, debug=True)
+    app.run(host="0.0.0.0", port=38002, debug=True)
