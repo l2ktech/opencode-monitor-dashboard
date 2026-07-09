@@ -1,5 +1,22 @@
 # OpenCode Monitor
 
+## Public Portfolio Summary
+
+This repository is a public support entry for AI development operations. It shows a lightweight Python dashboard for monitoring OpenCode sessions across multiple devices, with agent/dashboard deployment notes, tablet-friendly display usage, and conservative local-network assumptions.
+
+For interviews, use it as evidence of operational tooling around AI coding workflows: multi-device session visibility, simple Flask-style service design, deployment scripts, and documentation for repeatable lab setup. It is not a live private fleet snapshot.
+
+## Evidence Entry Points
+
+- [`app.py`](app.py): main dashboard/agent implementation.
+- [`MULTI-DEVICE-SETUP.md`](MULTI-DEVICE-SETUP.md) and [`DEPLOYMENT.md`](DEPLOYMENT.md): setup and deployment notes.
+- [`.agentdocs/device-setup-guide.md`](.agentdocs/device-setup-guide.md): device onboarding guide.
+- [`docker-compose.yml`](docker-compose.yml), [`Dockerfile`](Dockerfile), and `scripts/`: deployment support.
+
+## Public Boundary
+
+This public README uses placeholder hosts instead of real device inventory. Do not publish private dashboard URLs, live device lists, auth tokens, SSH hostnames, reverse-proxy domains, browser/session history, or production monitoring data in this repository.
+
 多设备 OpenCode 会话监控系统，将所有设备的会话聚合到中央 Dashboard，在单一页面统一查看。
 
 ## 快速开始
@@ -11,7 +28,7 @@ cd dashboard-ocmonitor
 python3 app.py
 ```
 
-访问：`http://192.168.1.4:38002`
+访问：`http://<dashboard-host>:38002`
 
 ### 添加新设备
 
@@ -65,7 +82,7 @@ dashboard-ocmonitor/
     {
       "id": "macbook-01",
       "name": "MacBook",
-      "url": "http://192.168.1.246:38002",
+      "url": "http://<device-ip>:38002",
       "enabled": true
     }
   ]
